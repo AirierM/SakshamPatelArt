@@ -126,3 +126,85 @@ function requestParallax() {
 window.addEventListener('scroll', requestParallax, { passive: true });
 window.addEventListener('resize', requestParallax);
 updateParallax(); // initial paint
+
+/* ============================================================
+   CUSTOM AUDIO PLAYER
+   Native <audio controls> looks ugly across browsers.
+   This drives a hidden <audio> element from a styled UI:
+   play/pause toggle, click-to-seek progress bar, timecodes.
+   ============================================================ */
+document.querySelectorAll('.audio-frame').forEach(frame => {
+  const audio       = frame.querySelector('audio');
+  const playBtn     = frame.querySelector('.audio-play');
+  const progressBar = frame.querySelector('.audio-progress-bar');
+  const fill        = frame.querySelector('.audio-progress-fill');
+  const currentEl   = frame.querySelector('.audio-current');
+  const durationEl  = frame.querySelector('.audio-duration');
+  if (!audio || !playBtn || !progressBar || !fill) return;
+
+  // Format seconds → "M:SS"
+  const fmt = (s) => {
+    if (!isFinite(s) || s < 0) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
+  };
+
+  // Play / pause toggle
+  playBtn.addEventListener('click', () => {
+    if (audio.paused) audio.play().catch(() => { /* ignore autoplay rejection */ });
+    else audio.pause();
+  });
+
+  // Reflect playback state in UI
+  audio.addEventListener('play', () => {
+    playBtn.classList.add('playing');
+    playBtn.setAttribute('aria-label', 'Pause audio');
+  });
+  audio.addEventListener('pause', () => {
+    playBtn.classList.remove('playing');
+    playBtn.setAttribute('aria-label', 'Play audio');
+  });
+  audio.addEventListener('ended', () => {
+    playBtn.classList.remove('playing');
+    playBtn.setAttribute('aria-label', 'Play audio');
+    fill.style.width = '0%';
+    progressBar.setAttribute('aria-valuenow', '0');
+    if (currentEl) currentEl.textContent = '0:00';
+  });
+
+  // Duration once metadata is available
+  audio.addEventListener('loadedmetadata', () => {
+    if (durationEl) durationEl.textContent = fmt(audio.duration);
+  });
+
+  // Time progress
+  audio.addEventListener('timeupdate', () => {
+    if (currentEl) currentEl.textContent = fmt(audio.currentTime);
+    if (audio.duration) {
+      const pct = (audio.currentTime / audio.duration) * 100;
+      fill.style.width = pct + '%';
+      progressBar.setAttribute('aria-valuenow', String(Math.round(pct)));
+    }
+  });
+
+  // Click to seek
+  const seekFromEvent = (clientX) => {
+    if (!audio.duration) return;
+    const rect = progressBar.getBoundingClientRect();
+    const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    audio.currentTime = pct * audio.duration;
+  };
+  progressBar.addEventListener('click', (e) => seekFromEvent(e.clientX));
+
+  // Keyboard support: ←/→ scrub 5s, space toggles play
+  progressBar.addEventListener('keydown', (e) => {
+    if (!audio.duration) return;
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); audio.currentTime = Math.max(0, audio.currentTime - 5); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); audio.currentTime = Math.min(audio.duration, audio.currentTime + 5); }
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      audio.paused ? audio.play() : audio.pause();
+    }
+  });
+});
